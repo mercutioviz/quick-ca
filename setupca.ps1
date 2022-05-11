@@ -1,4 +1,4 @@
-#requires -version 7
+#requires -version 5
 <#
 .SYNOPSIS
   Simple CA setup to create a cert signing authority and subsequent server/client certs
@@ -236,7 +236,7 @@ Function Create_CA_Root {
     openssl genrsa $bits > ca-key.pem
     Write-Host -ForeGroundColor Green "Done"
     Write-Host -NoNewLine "Generating CA root certificate..."
-    openssl req -new -x509 -noenc -days 3650 -key $cakeyfile -subj "$rootsubj" -config $casslconfigfile > $carootfile
+    openssl req -new -x509 -noenc -days 3650 -key "$cakeyfile" -subj "$rootsubj" -config "$casslconfigfile" > $carootfile
     Write-Host -ForeGroundColor Green "Done"
 }
 
