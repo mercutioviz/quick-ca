@@ -169,7 +169,7 @@ Function Print_Help {
     Write-Host "    Create CA root cert"
     Write-Host "    Create server and client cert requests with proper extensions"
     Write-Host "    Sign server and client cert requests with CA root cert"
-    Write-Host "    Output client and server certs in .pem and .p12 formats"
+    Write-Host "    Output client and server certs in .pem and .pfx/.p12 formats"
     Write-Host ' '
     Write-Host "    If script is run subsequent times then user may start fresh or create new "
     Write-Host "    server and/or client certs signed by the existing CA"
@@ -250,6 +250,9 @@ Function Create_Server_Cert_Key_Pair {
     Write-Host "Signing server certificate with CA..."
     openssl x509 -req -days 3650 -in .\server-csr.pem -CA $carootfile -CAkey $cakeyfile -CAcreateserial -out server-crt.pem -extfile $svrsslconfigfile -extensions req_ext
     Write-Host -ForegroundColor Green "Done signing server certificate"
+    Write-Host -NoNewline "Creating .pfx file for server certificate and key..."
+    openssl pkcs12 -export -out ./server.pfx -inkey ./server-key.pem -in ./server-crt.pem -certfile $carootfile -passout pass:$pass
+    Write-Host "Done" -ForegroundColor Green
 }
 
 Function Create_Client_Cert_Key_Pair {
@@ -257,6 +260,7 @@ Function Create_Client_Cert_Key_Pair {
     $clientkeyfile = "./client-{0:D4}-key.pem" -f $serial
     $clientcsrfile = "./client-{0:D4}-csr.pem" -f $serial
     $clientcrtfile = "./client-{0:D4}-crt.pem" -f $serial
+    $clientpfxfile = "./client-{0:D4}.pfx" -f $serial
     openssl genrsa $bits > $clientkeyfile
     Write-Host -ForeGroundColor Green "Done"
     Write-Host -NoNewLine "Generating CSR for client $serial..."
@@ -265,6 +269,10 @@ Function Create_Client_Cert_Key_Pair {
     Write-Host "Signing client certificate with CA..."
     openssl x509 -req -days 3650 -in $clientcsrfile -CA $carootfile -CAkey $cakeyfile -CAcreateserial -out $clientcrtfile -extfile $clientsslconfigfile -extensions req_ext
     Write-Host -ForeGroundColor Green "Done signing client $serial certificate"
+    Write-Host -NoNewline "Creating .pfx file for client $serial certificate and key..."
+    openssl pkcs12 -export -out $clientpfxfile -inkey $clientkeyfile -in $clientcrtfile -certfile $carootfile -passout pass:$pass
+    Write-Host "Done" -ForegroundColor Green
+
 }
 
 
