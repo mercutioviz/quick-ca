@@ -49,7 +49,7 @@ Param (
     $carootfile = './ca-root.pem',
     [Parameter(Mandatory=$false,ValueFromPipeline=$true)]
     [string]
-    $password = 'abc123xyz',
+    $pass = 'abc123xyz',
     [Parameter(Mandatory=$false,ValueFromPipeline=$true)]
     [string]
     $cn,    
@@ -79,7 +79,10 @@ Param (
     $bits = 2048,
     [Parameter(Mandatory=$false,ValueFromPipeline=$true)]
     [int]
-    $serial = 1
+    $serial = 1,
+    [Parameter(Mandatory=$false,ValueFromPipeline=$true)]
+    [int]
+    $clientcerts = 1
 )
 
 #---------------------------------------------------------[Initialisations]--------------------------------------------------------
@@ -100,8 +103,6 @@ x509_extensions = v3_ca
 [ v3_ca ]
 basicConstraints=critical,CA:true,pathlen:1
 keyUsage=digitalSignature,keyAgreement,keyCertSign
-subjectKeyIdentifier=hash
-authorityKeyIdentifier=keyid:always,issuer
 '
 
 # Server cert config file to add extensions
@@ -191,6 +192,8 @@ Function Validate_Openssl {
       Catch {
         Write-Host -ForegroundColor Red "OpenSSL not found."
         Write-Host "Please install OpenSSL and ensure that 'openssl' is in the sytem path."
+        Write-Host "Some have used Firedaemon with success:"
+        Write-Host "https://www.firedaemon.com/download-firedaemon-openssl"
         Exit(1)
       }
     }
@@ -239,21 +242,29 @@ Function Create_CA_Root {
 
 Function Create_Server_Cert_Key_Pair {
     Write-Host -NoNewLine "Generating" $bits.toString() "bit key for server cert..."
-    openssl genrsa $bits > svr-key.pem
+    openssl genrsa $bits > server-key.pem
     Write-Host -ForeGroundColor Green "Done"
     Write-Host -NoNewLine "Generating CSR for server..."
-    openssl req -new -noenc -key $cakeyfile -subj "$rootsubj" -config $svrsslconfigfile > ./server-csr.pem
+    openssl req -new -noenc -key server-key.pem -subj "$subj" -config $svrsslconfigfile > ./server-csr.pem
     Write-Host -ForeGroundColor Green "Done"
+    Write-Host "Signing server certificate with CA..."
+    openssl x509 -req -days 3650 -in .\server-csr.pem -CA $carootfile -CAkey $cakeyfile -CAcreateserial -out server-crt.pem -extfile $svrsslconfigfile -extensions req_ext
+    Write-Host -ForegroundColor Green "Done signing server certificate"
 }
 
 Function Create_Client_Cert_Key_Pair {
     Write-Host -NoNewLine "Generating" $bits.toString() "bit key for client cert..."
     $clientkeyfile = "./client-{0:D4}-key.pem" -f $serial
+    $clientcsrfile = "./client-{0:D4}-csr.pem" -f $serial
+    $clientcrtfile = "./client-{0:D4}-crt.pem" -f $serial
     openssl genrsa $bits > $clientkeyfile
     Write-Host -ForeGroundColor Green "Done"
-    Write-Host -NoNewLine "Generating CSR for client..."
-    openssl req -new -noenc -key $cakeyfile -subj "$rootsubj" -config $clientsslconfigfile > $clientcsrfile
+    Write-Host -NoNewLine "Generating CSR for client $serial..."
+    openssl req -new -noenc -key $clientkeyfile -subj "$subj" -config $clientsslconfigfile > $clientcsrfile
     Write-Host -ForeGroundColor Green "Done"
+    Write-Host "Signing client certificate with CA..."
+    openssl x509 -req -days 3650 -in $clientcsrfile -CA $carootfile -CAkey $cakeyfile -CAcreateserial -out $clientcrtfile -extfile $clientsslconfigfile -extensions req_ext
+    Write-Host -ForeGroundColor Green "Done signing client $serial certificate"
 }
 
 
@@ -290,11 +301,13 @@ Write-Host "Using subject: $rootsubj for root CA certificate"
 $subj="/C=$c/ST=$st/L=$l/O=$o/OU=$ou/CN=$cn"
 Write-Host "Using subject: $subj for server and client certificates"
 
+<#
 $clientcsrfile = "./client-{0:D4}-csr.pem" -f $serial
 if ( Test-Path $clientcsrfile ) {
     Write-Host "Client CSR file $clientcsrfile already exists. Please specify a different serial number." -ForegroundColor Yellow
     exit(1)
 }
+#>
 
 $clientcrtfile = "./client-{0:D4}-crt.pem" -f $serial
 if ( Test-Path $clientcrtfile ) {
@@ -305,9 +318,10 @@ if ( Test-Path $clientcrtfile ) {
 $cakeyfile_exists = Test-Path -Path $cakeyfile
 $carootfile_exists = Test-Path -Path $carootfile
 if ( $cakeyfile_exists -and $carootfile_exists -and $serial -gt 1) {
-    Write-Host "Creating client cert for serial $serial..."
-    Create_Client_Cert_Key_Pair
-    Write-Host "Done" -ForegroundColor Green
+    for ( $i=0; $i -lt $clientcerts; $i++ ) {
+        Create_Client_Cert_Key_Pair
+        $serial = $serial + 1
+    }
     exit(0)
 } elseif ( $cakeyfile_exists -and $carootfile_exists -and $clobber -eq $false ) {
   Write-Host -ForeGroundColor Yellow "`nExisting CA root cert and key found!"
@@ -332,8 +346,11 @@ Create_CA_Root
 # Create server key and cert
 Create_Server_Cert_Key_Pair
 
-# Create client key and cert
-Create_Client_Cert_Key_Pair
+# Create client keys and certs
+for ( $i=0; $i -lt $clientcerts; $i++ ) {
+    Create_Client_Cert_Key_Pair
+    $serial = $serial + 1
+}
 
 # Remove temporary openssl config file
 #Remove_SSL_Config_Files
